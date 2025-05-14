@@ -1,0 +1,55 @@
+import {
+  reactExtension,
+  useApi,
+  useTranslate,
+  useSettings,
+  Text,
+} from "@shopify/ui-extensions-react/checkout";
+import { Banner } from "@shopify/ui-extensions/checkout";
+
+import React, { useEffect, useState } from "react";
+
+export default reactExtension("purchase.checkout.block.render", () => (
+  <Extension />
+));
+
+function Extension() {
+  const translate = useTranslate();
+  const { extension } = useApi();
+  const { order_reservation_text } = useSettings();
+
+  const [timeLeft, setTimeLeft] = useState(10 * 60);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setTimeLeft((prev) => {
+        if (prev <= 1) {
+          clearInterval(timer);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const formatTime = (seconds) => {
+    const m = Math.floor(seconds / 60)
+      .toString()
+      .padStart(2, "0");
+    const s = (seconds % 60).toString().padStart(2, "0");
+    return `${m}:${s}`;
+  };
+
+  return (
+    <>
+      {timeLeft > 0 && (
+        <Banner status="success" spacing="base" inlineAlignment="start" blockAlignment="center">
+          <Text emphasis="bold" size="medium">
+            {order_reservation_text} {formatTime(timeLeft)}
+          </Text>
+        </Banner>
+      )}
+    </>
+  );
+}
