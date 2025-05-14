@@ -1,0 +1,206 @@
+import {
+  useApi,
+  reactExtension,
+  BlockStack,
+  useApplyCartLinesChange,
+  useCartLines,
+  Text,
+  Switch,
+  useSettings,
+  Image,
+  InlineLayout,
+  BlockLayout,
+  SkeletonTextBlock,
+  useCurrency,
+  Heading,
+} from "@shopify/ui-extensions-react/checkout";
+import {
+  Grid,
+  GridItem,
+  TextBlock,
+  View,
+} from "@shopify/ui-extensions/checkout";
+import { useEffect, useState } from "react";
+
+export default reactExtension("purchase.checkout.block.render", () => (
+  <Extension />
+));
+
+function Extension() {
+  const { query } = useApi();
+  const { message, product_reference, title } = useSettings();
+  const referenceID = product_reference?.toString().split("/");
+
+  const applyCartLinesChange = useApplyCartLinesChange();
+  const currency = useCurrency();
+  const cartLines = useCartLines();
+  const [loading, setLoading] = useState(false);
+  const [checkMark, setCheckMark] = useState(false);
+  const [products, setProducts] = useState([]);
+
+  function getCurrencySymbol(currencyCode) {
+    try {
+      const formatter = new Intl.NumberFormat("en", {
+        style: "currency",
+        currency: currencyCode,
+        minimumFractionDigits: 0,
+      });
+      const formattedCurrency = formatter.format(1);
+
+      const symbolMatch = formattedCurrency.match(/[^\d.,\s]+/g);
+
+      return symbolMatch ? symbolMatch.join(" ").trim() : currencyCode;
+    } catch (error) {
+      console.error("Invalid currency code:", currencyCode);
+      return currencyCode;
+    }
+  }
+
+  const addToCart = async (variantID) => {
+    const result = await applyCartLinesChange({
+      type: "addCartLine",
+      merchandiseId: variantID,
+      quantity: 1,
+    });
+    if (result.type === "success") {
+      console.log(result.type);
+    } else {
+      console.log(result.message);
+    }
+  };
+
+  const removeFromCart = async (merchandiseId) => {
+    const result = await applyCartLinesChange({
+      type: "updateCartLine",
+      id: merchandiseId,
+      quantity: 0,
+    });
+    if (result.type === "success") {
+      console.log(result.type);
+    } else {
+      console.log(result.message);
+    }
+  };
+
+  const currSym = getCurrencySymbol(currency.isoCode);
+
+  async function fetchProducts() {
+    setLoading(true);
+    try {
+      const { data } = await query(
+        `query {
+        products(first: 100, query: "${referenceID[referenceID.length - 1]}") {
+          nodes {
+            id
+            title
+            description
+            images(first:1){
+              nodes {
+                url
+              }
+            }
+            variants(first: 1) {
+              nodes {
+                id
+                price {
+                  currencyCode  
+                  amount
+                }
+              }
+            }
+          }
+        }
+      }`,
+        {
+          variables: { first: 1 },
+        },
+      );
+      setProducts(data?.products?.nodes);
+      const insuranceProduct = cartLines.filter(
+        (line) =>
+          line.merchandise.id ===
+          data?.products?.nodes[0]?.variants?.nodes[0]?.id,
+      );
+      if (insuranceProduct.length === 0) {
+        addToCart(data?.products?.nodes[0].variants.nodes[0].id);
+      }
+    } catch (error) {
+      console.error(error);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const handleChange = (checked) => {
+    if (checked) {
+      addToCart(products[0].variants.nodes[0].id);
+    } else {
+      const removableProduct = cartLines.filter(
+        (line) => line.merchandise.id === products[0].variants.nodes[0].id,
+      );
+      removeFromCart(removableProduct[0].id);
+    }
+    setCheckMark(checked);
+  };
+
+  useEffect(() => {
+    fetchProducts();
+  }, []);
+
+  return (
+    <BlockStack spacing="base">
+      <Heading level={2}>{title && title}</Heading>
+
+      <BlockStack border="base" padding="base" cornerRadius="none">
+        {loading ? (
+          <SkeletonTextBlock lines={3} />
+        ) : (
+          <View spacing="none" padding="none">
+            {products.map((product, index) => (
+              <Grid columns={["15%", "85%"]} spacing="base">
+                <GridItem key={index}>
+                  <Image
+                    source={product.images.nodes[0].url}
+                    loading="lazy"
+                    border="none"
+                    cornerRadius="none"
+                    aspectRatio={1}
+                  />
+                </GridItem>
+                <GridItem>
+                  <Grid columns={["75%", "25%"]} spacing="loose">
+                    <GridItem>
+                      <BlockStack spacing="tight">
+                        <Text size="base" emphasis="bold">
+                          {product.title}
+                        </Text>
+                        <TextBlock size="small" appearance="subdued">
+                          {message ? message : product?.description}
+                        </TextBlock>
+                      </BlockStack>
+                    </GridItem>
+                    <GridItem>
+                      <BlockStack spacing="tight" inlineAlignment="end">
+                        <Text size="base" appearance="subdued">
+                          {currSym}
+                          {Number(
+                            product?.variants?.nodes[0]?.price?.amount,
+                          ).toLocaleString("en", { minimumFractionDigits: 2 })}
+                        </Text>
+                        <Switch
+                          onChange={handleChange}
+                          checked={checkMark}
+                          name="Upsell-Product"
+                        />
+                      </BlockStack>
+                    </GridItem>
+                  </Grid>
+                </GridItem>
+              </Grid>
+            ))}
+          </View>
+        )}
+      </BlockStack>
+    </BlockStack>
+  );
+}
